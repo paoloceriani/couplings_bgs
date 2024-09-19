@@ -10,10 +10,8 @@ import math
 from scipy.special import erfinv
 import warnings
 
-warnings.filterwarnings("error")
 
-def convert_col(x):
-    return x.replace({i:e for e,i in enumerate(set(x))})
+# code for couplings of univariate/ multivariate gaussians
 
 def normal_dens_1d(mu,sigma,x):
     if np.power(x-mu,2)/sigma**2 > 1e20:
@@ -49,19 +47,7 @@ def maximal_coupling_normal_1d(mu_x, mu_y, sigma_x, sigma_y):
             w = np.random.rand()*normal_dens_1d(mu_y,sigma_y,y)
             if w > normal_dens_1d(mu_x,sigma_x,y):
                 return x,y
-
-
-"""def maximal_coupling_normal_d(mu_x, mu_y, Sigma_x, Sigma_y,diag=False):
-    x = np.random.multivariate_normal(mu_x,Sigma_x)
-    w = np.random.rand()*normal_dens_d(mu_x,Sigma_x,x, diag)
-    if w < normal_dens_d(mu_y,Sigma_y,x,diag):
-        return x,x
-    else:
-        while True:
-            y = np.random.multivariate_normal(mu_y, Sigma_y)
-            w = np.random.rand()*normal_dens_d(mu_y,Sigma_y,y,diag)
-            if w > normal_dens_d(mu_x,Sigma_x,y,diag):
-                return x,y """
+                
 
 def maximal_coupling_normal_d(mu_x, mu_y, Sigma_x, Sigma_y,diag=False):
     x = np.random.multivariate_normal(mu_x,Sigma_x)
@@ -126,7 +112,7 @@ def reflection_coupling(mu_1, mu_2, Sigma, diag =False):
     Y = mu_2+ L@Y
     return X,Y
     
-# we do maximal coupling on gamma with same shape parameter, so don't bother about it
+# we do maximal coupling on gamma with same shape parameter
 def maximal_coupling_gamma(a, b_x, b_y):
     x = np.random.gamma(a, b_x)
     w = np.random.rand()
@@ -149,8 +135,10 @@ def d_tv_d(mu_x, mu_y, Sigma):
 def d_tv_1d(mu_x, mu_y, sigma):
     return erf(np.abs(mu_x-mu_y)/(sigma*2*np.sqrt(2)))
     
- # coupling functions:
- 
+# auxiliary functions for Crossed random effects models
+
+def convert_col(x):
+    return x.replace({i:e for e,i in enumerate(set(x))})
  
 
 def countmemb(itr,I):
@@ -179,7 +167,7 @@ def sum_on_all(a, N_sl, k, N_s, iss):
     return res
 
 
-# notice that for the moment whenever i generate data, always use tau[k]= tau_e= 1
+# Python class with all the functions needed for generate data from Gaussian CREMS and sampling from their posteriors
 class Data:
     def __init__(self):
         self.K = 0
@@ -192,7 +180,8 @@ class Data:
         self.mean_y_s = None
         self.N_s = None
         self.N_sl = None
-    
+
+    #generate data from the model, assign N oberservations randomly to each of the I factor of level K
     def generate(self, N,K,I,mu):
         self.K = K
         self.I = I
@@ -200,17 +189,9 @@ class Data:
         self.mu = mu
         # supposing uniform assignment of individuals to factor/levels   
         self.ii = np.random.randint(0,self.I, size=(self.N,self.K)) # this should go from 0 to I-1
-        self.iss = self.I*np.ones(self.K, dtype = int) # since generated data, i suppose i have maximum everywhere
-        # self.iss = np.max(self.ii, axis = 0)+1 # note that for iss the categories go from 1 to I
-        
-        #random effect, tau_k = 1
-        # self.a = np.random.normal(0,1, size = (self.I,self.K))
-        
+        self.iss = self.I*np.ones(self.K, dtype = int) 
         self.a = [np.random.normal(0,1,size=I) for k in range(K)]
-            
-        # aux = np.sum(self.a[self.ii,np.arange(self.K)], axis = 1)
         aux = np.array([np.sum([self.a[k][self.ii[n,k]] for k in range(K)]) for n in range(N)])
-        
         self.y = aux+self.mu+np.random.normal(0,1, size = self.N) 
         self.mean_y = np.mean(self.y)
         self.mean_y_s = np.array([np.array([np.mean(self.y[self.ii[:,k] == h]) if not np.isnan(np.mean(self.y[self.ii[:,k] == h])) else 0 for h in range(0,self.iss[k])]) for k in range(self.K) ])
@@ -221,14 +202,14 @@ class Data:
                 for n in range(self.N):
                     self.N_sl[i][j][self.ii[n,i], self.ii[n,j]] += 1
 
-  
+    # function needed for real data, to cast in the same format as above
     def import_df(self,df, col_name):
         self.y = np.array(df['y'])
         self.ii= np.array(df.loc[:, col_name].apply(convert_col, axis = 0)).astype('int')
         self.I = self.ii.max()+1
         self.K = self.ii.shape[1]
         self.N= self.ii.shape[0]
-        self.iss = np.max(self.ii, axis = 0).astype('int')+1 # it is the number of categories and the maximum 
+        self.iss = np.max(self.ii, axis = 0).astype('int')+1 
         self.mean_y = np.mean(self.y)
         self.mean_y_s = [np.array([np.mean(self.y[self.ii[:,k] == h]) if not np.isnan(np.mean(self.y[self.ii[:,k] == h])) else 0 for h in range(0,self.iss[k])]) for k in range(self.K) ]
         
@@ -242,9 +223,10 @@ class Data:
             for j in range(self.K):
                 for n in range(self.N):
                     self.N_sl[i][j][self.ii[n,i], self.ii[n,j]] += 1
-        
+                    
+    # function to compute the theoretical convergence rate ecploiting the work in https://www.jstor.org/stable/2346048
+    # both for plain vanilla and collapsed gibbs
     def conv_rate(self, tau_e, tau):
- 
         index = np.zeros(1+self.K).astype(int)
         index[0] = 1
         index[1:] = (np.cumsum(self.iss)+1).astype(int)
@@ -261,6 +243,8 @@ class Data:
         A = np.identity(Q.shape[0])- la.block_diag(1/Q[0,0],*[la.inv(Q[index[i]:index[i+1],index[i]:index[i+1]]) for i in range(self.K)])@Q
         U = la.triu(A)
         L = la.tril(A)
+        
+        # vanilla scheme 
         B_pv = la.inv((np.identity(A.shape[0])-L))@U
         Sigma = la.inv(Q)
         rho_pv = np.max(np.abs(la.eigvals(B_pv)))
@@ -280,29 +264,16 @@ class Data:
         rho_coll = np.max(np.abs(la.eigvals(B_coll)))
         return rho_pv, rho_coll,Sigma, B_pv, B_coll
 
-
-
-#initializing the values for the chain, and update them
-# should i really divide between dataset and simulated data? probably not...
-# just take care of different dimensions with a saved as list of arrays
-
 def distance(val_1,val_2):
 # compute square distances between vector of ALL parameters    
     return  (val_1.tau-val_2.tau)@(val_1.tau-val_2.tau) + (val_1.tau_e-val_2.tau_e)**2 + (val_1.mu-val_2.mu)**2+ np.sum([np.sum(np.power(val_1.a[k]-val_2.a[k],2)) for k in range(len(val_1.a))])
 
-    
-        
 
-
-#receives as input data=Data, synthetic or from df
-# T = max number of iteration
-
-#initializing the values for the chain, and update them
+# class of the values of the MCMC chains, for Model 1 with fixed or free variance
 class iter_value:    
     def __init__(self, data,T, rand= False, var_fixed = False, var = 9):
         
         self.var_fixed = var_fixed
-        
         if rand:
             if not var_fixed:
                 self.tau = np.random.gamma(1/2,2, size= data.K)
@@ -346,7 +317,9 @@ class iter_value:
                 else:
                     res[j] = 0
             return res
-        
+
+    # on step of the vanilla Gibbs sampling, if collapsed =True, implement collapsed gibbs
+    
     def update(self,data, t, collapsed, PX):
         pred = np.zeros(data.N)
         if not collapsed: #update mu given a^(0:K)
@@ -354,38 +327,23 @@ class iter_value:
             mu_var = 1/(data.N*self.tau_e)
             self.mu = np.random.normal(mu_mean,  np.sqrt(mu_var))
             
-            #print(self.mu)
-            
         for k in range(data.K):
-            
-            # update means
-            s_k = data.N_s[k]*self.tau_e / (self.tau[k]+ data.N_s[k]*self.tau_e)
-            #sum_a_l = 0
-            #kr = np.arange(len(self.a))
-            #for l in kr[kr!=k]:
-            #    sum_a_l +=data.N_sl[k][l]@ self.a[l]
-            #sum_a_l = sum_a_l / data.N_s[k]
-            
+            s_k = data.N_s[k]*self.tau_e / (self.tau[k]+ data.N_s[k]*self.tau_e)    
             sum_a_l=self.sum_on_all(data,k)
             if collapsed:
                 mu_mean= (s_k@(data.mean_y_s[k] - sum_a_l))/sum(s_k)
                 var_mean = 1/(self.tau[k]*sum(s_k))
                 aux = np.random.normal(0,1)
                 self.mu = mu_mean+aux*np.sqrt(var_mean)
-                #print(self.mu)
                 self.mu_chain[1+t*data.K+k]=self.mu
 
 
             a_k_mean = (data.mean_y_s[k]-self.mu-sum_a_l)/(1+self.tau[k]/ (self.tau_e*data.N_s[k]))
             a_k_var = 1/(data.N_s[k]*self.tau_e+self.tau[k])  
-            #print(np.mean(a_k_var))
-            # print(a_k_var)
             aux = np.random.normal(0,1, size= data.iss[k])
             self.a[k]= a_k_mean+ np.sqrt(a_k_var)*aux
-            
             self.a_means[k] = self.a[k]@data.N_s[k]/data.N
             pred += self.a[k][data.ii[:,k]]
-            #print(self.a[k])
             
             if PX :
                 prec_alpha_k= self.tau_e*sum(data.N_s[k]*np.power(self.a[k],2))
@@ -393,16 +351,12 @@ class iter_value:
                 aux = np.random.normal(0,1)
                 alpha_k = mean_alpha_k+ aux/np.sqrt(prec_alpha_k)
                 self.a[k] = self.a[k]*alpha_k
-                #print(self.a[k])
 
             if self.var_fixed == False:
                 self.tau[k] = np.random.gamma(size=1, shape= data.iss[k]/2-0.5, scale= 2/sum(np.power(self.a[k],2)))
 
         pred += self.mu
-       #  print(data.mean_y - np.mean(pred))
         self.SS0 = np.sum(np.power((data.y-pred),2))
-        #print(" iteration: ",t)
-        #print(self.SS0)
 
         if self.var_fixed == False:
             self.tau_e = np.random.gamma(size=1, shape= data.N/2-0.5, scale=2/self.SS0)
@@ -416,14 +370,11 @@ class iter_value:
         self.tau_e_chain[t+1] = self.tau_e
         self.tau_chain[:, t+1] = self.tau
 
-        
+    # implement one iteration of the collapsed Gibbs, val_2 refers to the coupled chain and belongs to iter_value class
     def coupled_update(self, val_2,data,t,l, collapsed, PX, close):
         pred = 0
         pred_2 = 0
-        
-        np.random.seed()
         aux_r = np.random.randint(1,5000, size = data.K+1)
-        
         if not collapsed: #update mu given a^(0:K)
             mu_mean = data.mean_y - np.sum(self.a_means)
             mu_var = 1/(data.N*self.tau_e)
@@ -436,7 +387,7 @@ class iter_value:
                 val_2.mu= mu_mean_2+ aux*np.sqrt(mu_var_2)
             else:
                 self.mu,val_2.mu = maximal_coupling_normal_1d(mu_mean, mu_mean_2,np.sqrt(mu_var), np.sqrt(mu_var_2))
-            #print(self.mu, val_2.mu)
+          
 
         for k in range(data.K):
             s_k =   data.N_s[k]*self.tau_e / (self.tau[k]+ data.N_s[k]*self.tau_e)
@@ -444,8 +395,6 @@ class iter_value:
             s_k_2 = data.N_s[k]*val_2.tau_e / (val_2.tau[k]+ data.N_s[k]*val_2.tau_e)
             sum_a_l_2 =  val_2.sum_on_all(data,k)
             
-
-
             if self.var_fixed == False:
                 if not close:
                     np.random.seed(aux_r[k])
@@ -467,7 +416,6 @@ class iter_value:
                     val_2.mu = mu_mean_2+aux*np.sqrt(var_mean_2)
                 else:
                     self.mu, val_2.mu = maximal_coupling_normal_1d(mu_mean, mu_mean_2, np.sqrt(var_mean), np.sqrt(var_mean_2))
-                #print(self.mu, val_2.mu)
             a_k_mean = self.tau_e*data.N_s[k]/(self.tau_e*data.N_s[k]+self.tau[k])*(np.array(data.mean_y_s[k])-self.mu-sum_a_l)
             a_k_var = 1/(data.N_s[k]*self.tau_e+self.tau[k])  
 
@@ -484,7 +432,7 @@ class iter_value:
                     self.a[k], val_2.a[k] = reflection_coupling(a_k_mean, a_k_mean_2, np.diag(a_k_var),  diag=True)
                 else:
                     self.a[k], val_2.a[k] = maximal_coupling_normal_d(a_k_mean, a_k_mean_2, np.diag(a_k_var), np.diag(a_k_var_2),diag = True)
-            #print(self.a[k], val_2.a[k])
+
             self.a_means[k] = sum(self.a[k]*data.N_s[k])/data.N
             val_2.a_means[k] = sum(val_2.a[k]*data.N_s[k])/data.N
             
@@ -505,8 +453,6 @@ class iter_value:
                      
                 self.a[k] = self.a[k]*alpha_k
                 val_2.a[k] = val_2.a[k]*alpha_k_2
-
-                #print(self.a[k], val_2.a[k])
 
             pred += self.a[k][data.ii[:,k]]
             pred_2 += val_2.a[k][data.ii[:,k]]
@@ -546,7 +492,8 @@ class iter_value:
     def __str__(self):
         return "Values mu: %f\ntau_e: %f\na:%s\ntau_k %s" %(self.mu, self.tau_e, str(self.a),str(self.tau))
 
-        
+
+# function that, given model specification and parameters and GENERATED data as input, generate the coupled chains
 def MCMC_sampler_coupled(data,collapsed=False, PX=False,L=1, T = 100, dist = 1e-2, rand= False, var_fixed = False, gen_var = 9 ): 
     N = data.N
     K = data.K
@@ -555,18 +502,14 @@ def MCMC_sampler_coupled(data,collapsed=False, PX=False,L=1, T = 100, dist = 1e-
     val_2 = iter_value(data, T+1, rand, var_fixed, gen_var)    
     coupling = False
     
-    # lagged part 
     for l in range(L):
         val_1.update(data,l,collapsed, PX)
-        
-    # original distance is computed as that after the lagged part ! 
+
     original_distance = distance(val_1, val_2) 
     t=0
     while t<T:
         close = (distance(val_1, val_2) < dist )
-        # Notice: originally it was l, than i put L, since l= L-1
         if val_1.coupled_update(val_2,  data,t,L,collapsed, PX,close) == -1:
-            #print("finished:",t)
             break
         t+=1
     
@@ -574,7 +517,7 @@ def MCMC_sampler_coupled(data,collapsed=False, PX=False,L=1, T = 100, dist = 1e-
 
 
 
-
+# marginal sampler
 def MCMC_sampler_single(data, T,collapsed=False, PX=False, rand=False, var_fixed = False): 
     N = data.N
     K = data.K
@@ -585,6 +528,7 @@ def MCMC_sampler_single(data, T,collapsed=False, PX=False, rand=False, var_fixed
         t+=1
     return val_1
 
+# function that, given model specification and parameters and REAL data as input, generate the coupled chains
 def MCMC_sampler_coupled_realdataset(data,collapsed=False, PX=False,L=1, T = 100, dist = 1e-2, rand= False, tau = None, tau_e = None): 
     N = data.N
     K = data.K
@@ -602,13 +546,8 @@ def MCMC_sampler_coupled_realdataset(data,collapsed=False, PX=False,L=1, T = 100
         val_2 = iter_value(data, T+1, rand, var_fixed=False)    
     
     coupling = False
-    
-    # lagged part 
     for l in range(L):
         val_1.update(data,l,collapsed, PX)
-        
-            # original distance is computed as that after the lagged part ! 
-    
     t=0
     while t<T:
         close = (distance(val_1, val_2) < dist )
@@ -620,94 +559,7 @@ def MCMC_sampler_coupled_realdataset(data,collapsed=False, PX=False,L=1, T = 100
     
     return val_1,val_2, t
  
-# first regime 
-
-def regime_1(K,I):
-    Z = np.random.binomial(n=1, p=0.1, size=(I, I))
-    iss = [I, I]
-    tau = np.ones(K)
-    a = [np.random.normal(0,1/np.sqrt(tau[k]),size=iss[k]) for k in range(K)]  
-    y= np.zeros(np.sum(Z))
-    ii = np.zeros((np.sum(Z),K))
-    N = np.sum(Z)
-    aux = 0
-    for o in range(I):
-        for j in range(I):
-            if Z[o,j] == 1:
-                y[aux] = np.random.normal(0 + a[0][o]+ a[1][j], 1)
-                ii[aux, 0] =o
-                ii[aux, 1] = j
-                aux += 1
-    data = pd.DataFrame()
-    
-    data['a'] = ii[:,0].astype('int')
-    data['b'] = ii[:,1].astype('int')
-    data['y'] = y
-    x = Data()
-    col_num = [0,1]
-    x.import_df(data, col_num) # these automatically takes care of eliminating 0
-    return x
-
-def regime_2(K,I):
-    Z = np.random.binomial(n=1, p=10/I, size=(I, I))
-    iss = [I, I]
-    tau = np.ones(K)
-    a = [np.random.normal(0,1/np.sqrt(tau[k]),size=iss[k]) for k in range(K)]  
-    y= np.zeros(np.sum(Z))
-    ii = np.zeros((np.sum(Z),K))
-    N = np.sum(Z)
-    aux = 0
-    for o in range(I):
-        for j in range(I):
-            if Z[o,j] == 1:
-                y[aux] = np.random.normal(0 + a[0][o]+ a[1][j], 1)
-                ii[aux, 0] =o
-                ii[aux, 1] = j
-                aux += 1
-    data = pd.DataFrame()
-    
-    
-    data['a'] = ii[:,0].astype('int')
-    data['b'] = ii[:,1].astype('int')
-    data['y'] = y
-    x = Data()
-    col_num = [0,1]
-    x.import_df(data, col_num) # these automatically takes care of eliminating 0
-    return x
-
-def regime_3(S, rho, cappa):
-    
-    I_1 = np.ceil(np.power(S,rho)).astype('int')
-    I_2 = np.ceil(np.power(S,cappa)).astype('int')
-    P = np.random.uniform(np.power(S, 1-rho-cappa), gamma*np.power(S, 1-rho-cappa), size = (I_1,I_2) )
-    P[P>1] = 1
-    Z = np.random.binomial(n=1, p=P, size=(I_1, I_2))
-           
-    iss = [I_1, I_2]
-    tau = np.ones(K)
-    a = [np.random.normal(0,1/np.sqrt(tau[k]),size=iss[k]) for k in range(K)]  
-    y= np.zeros(np.sum(Z))
-    ii = np.zeros((np.sum(Z),K))
-    aux = 0
-    for i in range(P.shape[0]):
-        for j in range(P.shape[1]):
-            if Z[i,j] == 1:
-                y[aux] = np.random.normal(0 +a[0][i]+ a[1][j], 1)
-                ii[aux, 0] =i
-                ii[aux, 1] = j
-                aux += 1
-    data = pd.DataFrame()
-           
-    data['a'] = ii[:,0].astype('int')
-    data['b'] = ii[:,1].astype('int')
-    data['y'] = y
-    x = Data()     
-    col_num = [0,1]
-    x.import_df(data, col_num)
-    return x
-          
-
-
+# generate data according to asymptotic regime 1 / 2 / 3
 def asymptotic_regimes(num,K,I=10,S=1, rho=1, cappa = 1, return_a = False, mu=0):
     x =Data()
     data = pd.DataFrame()
@@ -795,119 +647,7 @@ def asymptotic_regimes(num,K,I=10,S=1, rho=1, cappa = 1, return_a = False, mu=0)
         return x
 
 
-
-
-
-"""
-def asymptotic_regimes(num,K,I=10,S=1, rho=1, cappa = 1, return_a = False):
-    x =Data()
-    data = pd.DataFrame()
-    
-    if K==2 and num!=3:
-        if num ==1:
-            p=0.1
-        elif num ==2:
-            p = 10/I
-        Z = np.random.binomial(n=1, p=p, size=(I, I))
-        iss = [I, I]
-        tau = np.ones(K)
-        a = [np.random.normal(0,1/np.sqrt(tau[k]),size=iss[k]) for k in range(K)]  
-        y= np.zeros(np.sum(Z))
-        ii = np.zeros((np.sum(Z),K))
-        N = np.sum(Z)
-        aux = 0
-        for o in range(I):
-            for j in range(I):
-                if Z[o,j] == 1:
-                    y[aux] = np.random.normal(0 + a[0][o]+ a[1][j], 1)
-                    ii[aux, 0] =o
-                    ii[aux, 1] = j
-                    aux += 1
-        data = pd.DataFrame()
-
-        data['a'] = ii[:,0].astype('int')
-        data['b'] = ii[:,1].astype('int')
-        data['y'] = y
-        col_num = ['a','b']
-        
-        
-        
-    if K > 2 and (num == 2 or num==1):    
-        if num==1:
-            p = 0.1
-        if num==2:
-            p = 10/I**(K-1)
-        N = np.random.binomial(I**K, p ,1)[0]
-        iss = [I]*K
-        tau = np.ones(K)
-        a = [np.random.normal(0,1/np.sqrt(tau[k]),size=iss[k]) for k in range(K)]  
-        y= np.zeros(np.sum(N))
-        ii = np.zeros((N,K)).astype(int)
-        
-        xx = random.sample(range(I**K),N) 
-        if K ==3:
-            for i in range(N):
-                ac = xx[i]//I**2
-                b = (xx[i]-(ac)*I**2)//I
-                c = xx[i]%I
-                ii[i,0] = ac
-                ii[i,1] = b
-                ii[i,2] = c
-
-        if K==4:
-            for i in range(N):
-                ac = xx[i]//I**3
-                b = (xx[i]-ac*I**3)//I**2
-                c = (xx[i]-ac*I**3-b*I**2)//I
-                d = xx[i]%I
-                ii[i,0] = ac
-                ii[i,1] = b
-                ii[i,2] = c
-                ii[i,3] = c
-
-       # for k in range(K):
-           #ii[:,k] = random.sample(range(I),N) 
-        for n in range(N):
-            y[n] = 0 +np.random.normal(sum([a[k][ii[n,k]] for k in range(K)]), 1)         
-        for k in range(K):
-            data[chr(97+k)] = ii[:,k].astype('int')
-        data['y'] = y
-        col_num =[ chr(97+k) for k in range(K)]
-            
-    if num == 3 and K==2:
-        gamma = 1.2
-        I_1 = np.ceil(np.power(S,rho)).astype('int')
-        I_2 = np.ceil(np.power(S,cappa)).astype('int')
-        P = np.random.uniform(np.power(S, 1-rho-cappa), gamma*np.power(S, 1-rho-cappa), size = (I_1,I_2) )
-        P[P>1] = 1
-        Z = np.random.binomial(n=1, p=P, size=(I_1, I_2))
-
-        iss = [I_1, I_2]
-        tau = np.ones(K)
-        a = [np.random.normal(0,1/np.sqrt(tau[k]),size=iss[k]) for k in range(K)]  
-        y= np.zeros(np.sum(Z))
-        ii = np.zeros((np.sum(Z),K))
-        aux = 0
-        for i in range(P.shape[0]):
-            for j in range(P.shape[1]):
-                if Z[i,j] == 1:
-                    y[aux] = np.random.normal(0 +a[0][i]+ a[1][j], 1)
-                    ii[aux, 0] =i
-                    ii[aux, 1] = j
-                    aux += 1
-                    
-        col_num = ['a','b']
-        data['a'] = ii[:,0].astype('int')
-        data['b'] = ii[:,1].astype('int')
-        data['y'] = y
-    
-    x.import_df(data, col_num) # these automatically takes care of eliminating 0
-    if return_a:
-        return x,a
-    else:
-        return x
- """
-
+# generate the plots, given an input file containing the results of the simulations
 def plot_results(file_name, K,tau_e, tau_k, delta, eps,reg_num,rand=True,vanilla = False, save= False,S=1, rho=1, cappa = 1, best_eps = False, output_name =[]):
     data = pd.read_csv(file_name)
     I = data['I'].unique()
@@ -919,16 +659,12 @@ def plot_results(file_name, K,tau_e, tau_k, delta, eps,reg_num,rand=True,vanilla
     rho = np.zeros(len(I))
     bound = []
     bound_vanilla = []
-
-
     for en,i in enumerate(I):
-
         print('#####################  '+ str(i)+ '  #################################################################\n' )
         if reg_num !=3:
             x= asymptotic_regimes(reg_num,K,I=i)
         else:
             x= asymptotic_regimes(3,K,I=i,S=S, rho=rho, cappa = cappa)
-        # these automatically takes care of eliminating 0
         epsi = 1
         rho[en], rho_coll[en], Sigma[en] , B[en], B_coll[en]= x.conv_rate(tau_e,tau_k)
 
@@ -939,15 +675,8 @@ def plot_results(file_name, K,tau_e, tau_k, delta, eps,reg_num,rand=True,vanilla
             aux_coll =aux_coll@aux_coll
             n+= 1
         n_d_coll = n
-        
-        #if best_eps == True:
-            #if 1e3/(K*i)<1:
-            #epsi = 1e3/(K*i)
-            #else:
-            #    epsi = 1e-3
-        #else:
-            #epsi = 1e-3
         epsi = 1e-3
+        
         if vanilla:
             aux_plain = np.copy(B[en])
             n=1
@@ -956,30 +685,21 @@ def plot_results(file_name, K,tau_e, tau_k, delta, eps,reg_num,rand=True,vanilla
                 n+= 1
 
             n_d = n
-            
             bound_vanilla.append(np.max((n_d, (0.5 *(np.log(np.max(np.abs(la.eigvals(Sigma[en] - B[en]@Sigma[en]@B[en].transpose()))))+ np.log(12+8*np.sqrt(2/np.pi))) *erfinv(epsi)+ 1/(2*np.sqrt(2)*np.e))/(1-(rho[en]))*(1+delta)/(1-epsi))) + np.max((n_d, ( 0.5*np.mean(np.log( data[ (data['I']==I[en]) & (data['var']=='fixed') & (data['coll']=='plain')]['dist']   ))-0.5*np.log(np.max(np.abs(la.eigvals(Sigma[en] - B[en]@Sigma[en]@B[en].transpose())))) - np.log(erfinv(eps)*2*np.sqrt(2)))/(1-(rho[en]) )*(1+delta))))
         
         rho_sbsb[en] = np.max(np.abs(la.eigvals(Sigma[en][1:,1:] - B_coll[en]@Sigma[en][1:,1:]@B_coll[en].transpose())))
-        print( np.log(2*np.sqrt(2)*erfinv(epsi)) )
-        print(n_d_coll)
-        print( (1+ np.max((n_d_coll,   np.ceil(np.mean(np.log( data[ (data['I']==I[en]) & (data['var']=='fixed') & (data['coll']=='collapsed')]['dist']  ))-0.5*np.log(rho_sbsb[en]) - np.log(2*np.sqrt(2)*erfinv(epsi))/ (1-(rho_coll[en]))*(1+delta)))))/(1-epsi) )
         bound.append(  (1+ np.max((n_d_coll,   np.ceil(np.mean(np.log( data[ (data['I']==I[en]) & (data['var']=='fixed') & (data['coll']=='collapsed')]['dist']  ))-0.5*np.log(rho_sbsb[en]) - np.log(2*np.sqrt(2)*erfinv(epsi))/ (1-(rho_coll[en]))*(1+delta)))))/(1-epsi) + 1+ np.max((n_d_coll, ( 0.5*np.mean(np.log( data[ (data['I']==I[en]) & (data['var']=='fixed') & (data['coll']=='collapsed')]['dist']   ))-0.5*np.log(rho_sbsb[en]) - np.log(np.sqrt(epsi/(rho_sbsb[en]))))/(1- (rho_coll[en]) )*(1+delta)) ))
-        
-        # bound.append(np.max((n_d_coll, (0.5 *(np.log(rho_sbsb[en] )+ np.log(12+8*np.sqrt(2/np.pi)) ) *np.sqrt(epsi/(rho_sbsb[en]*8))+ 1/(2*np.sqrt(2)*np.e))/(- np.log(rho_coll[en]))*(1+delta)/(1-epsi))) + np.max((n_d_coll, ( 0.5*np.mean(np.log( data[ (data['I']==I[en]) & (data['var']=='fixed') & (data['coll']=='collapsed')]['dist']   ))-0.5*np.log(rho_sbsb[en]) - np.log(np.sqrt(epsi/(rho_sbsb[en]))))/(- np.log(rho_coll[en]) )*(1+delta))))
-        print(epsi)
+
     plt.figure(figsize=(10,5))
     
     plt.rc('axes', labelsize=15)    # fontsize of the x and y labels
     plt.rc('xtick', labelsize=15)    # fontsize of the tick labels
     plt.rc('ytick', labelsize=15)    # fontsize of the tick labels
-    
     plt.xticks(range(len(I)), I)
-
     plt.plot(range(len(I)), bound,label='bound, fixed var')
     plt.scatter(range(len(I)), bound,s= 200, marker = '*')
     print(bound)
     for m in data[['coll','var']].drop_duplicates().iterrows():
-    #print(m[1]['coll'], m[1]['var'])
          if vanilla == False:
              if m[1][0]!= "plain":
                  plt.plot(range(len(I)),[ 1+ np.mean(data.iloc[data.groupby(['coll','var','I']).groups[(str(m[1]['coll']),str(m[1]['var']),i)].tolist(),:]['t']) for i in I], label= (str(m[1]['coll'])+',  '+ str(m[1]['var'])))
@@ -987,8 +707,7 @@ def plot_results(file_name, K,tau_e, tau_k, delta, eps,reg_num,rand=True,vanilla
          else:
              plt.plot(range(len(I)),[ 1+ np.mean(data.iloc[data.groupby(['coll','var','I']).groups[(str(m[1]['coll']),str(m[1]['var']),i)].tolist(),:]['t']) for i in I], label= (str(m[1]['coll'])+',  '+ str(m[1]['var'])))
              plt.scatter(range(len(I)),[ 1+ np.mean(data.iloc[data.groupby(['coll','var','I']).groups[(str(m[1]['coll']),str(m[1]['var']),i)].tolist(),:]['t']) for i in I], s=50)
-    
-
+             
     if vanilla:
         plt.plot(range(len(I)), bound_vanilla,label='bound vanilla, fixed var')
         plt.scatter(range(len(I)), bound_vanilla,s= 200, marker = '*')
@@ -1002,32 +721,15 @@ def plot_results(file_name, K,tau_e, tau_k, delta, eps,reg_num,rand=True,vanilla
         plt.savefig(str(output_name)+'.png')
     plt.show()
 
-def run_experiment(K,I, J,tau_e, tau_k ,delta, eps, reg_num, rand=True,export_results = False,T_max = 200, filename=[], collapsed = [], variance = [], S=1, rho=1, cappa = 1, best_eps = False):
-
-    
-    # for the moment works only if you do all interesting combinations ....
-    
+def run_experiment(K,I, J,tau_e, tau_k ,delta, eps, reg_num, rand=True,export_results = False,T_max = 200, filename=[], collapsed = [], variance = [], S=1, rho=1, cappa = 1, best_eps = False):    
     if len(collapsed) != len(variance):
         print("variants error")
         return -1
-    
     distances = np.zeros((len(collapsed ), len(I), J))
-    #original_distance_coll_fix = np.zeros((len(I),J))
-    #original_distance_vanilla_fix = np.zeros((len(I),J))
-    #original_distance_coll_free = np.zeros((len(I),J))
     times = np.zeros((len(collapsed ), len(I), J))
-    #t_collapsed_fixed = np.zeros((len(I),J))
-    #t_vanilla_fixed = np.zeros((len(I),J))
-    #t_collapsed_free = np.zeros((len(I),J))
-
-
-
-
     for en,i in enumerate(I):
         print('#####################  '+ str(i)+ '  #################################################################\n' )
         x = asymptotic_regimes(reg_num, K , i, S, rho, cappa)
-
-        print("go!")
         for e,(m,n) in enumerate(zip(collapsed,variance)):
             print("collapsed, fixed variance=", m,n)
             if best_eps ==True:
@@ -1037,26 +739,20 @@ def run_experiment(K,I, J,tau_e, tau_k ,delta, eps, reg_num, rand=True,export_re
             for j in range(J):
                 a,b,distances[e,en,j], times[e,en,j]= MCMC_sampler_coupled(x, collapsed=m, PX=True, L=1, T=T_max, dist=epsi, rand= rand, var_fixed=n)
         pd.DataFrame(times.flatten()).to_csv("aux_"+str(K))    
-    # create dataset from results 
-    # create dataset from simulation
+   
     df = pd.DataFrame()
-    #df['t'] = np.hstack((t_vanilla_fixed.flatten(), t_collapsed_fixed.flatten(), t_collapsed_free.flatten())) 
     df['t'] = times.flatten()
     df['dist'] = distances.flatten()
-    # df['dist'] = np.hstack((original_distance_vanilla_fix.flatten(), original_distance_coll_fix.flatten(), original_distance_coll_free.flatten())) 
     df['I'] = np.hstack([np.repeat(I,J) for h in range(len(collapsed))])
     aux = [ [str(m)]*len(I)*J for m in collapsed]
     df['coll'] = [a for b in aux for a in b]
     df['coll'] = df['coll'].str.replace('True','collapsed')
     df['coll'] = df['coll'].str.replace('False','plain')
-    #df['coll'] = ['plain']*len(I)*J + ['collapsed']*J*len(I) + ['collapsed']*J*len(I)
-    #df['var'] = ['fixed']*2*J*len(I) + ['free_v']*J*len(I)
     aux = [ [str(n)]*len(I)*J for n in variance]
     df['var'] = [a for b in aux for a in b]
     df['var'] = df['var'].str.replace('True','fixed')
     df['var'] = df['var'].str.replace('False','free_v')
     
-
     if export_results:
         df.to_csv(filename)
         return -1
