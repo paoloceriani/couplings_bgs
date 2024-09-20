@@ -648,77 +648,114 @@ def asymptotic_regimes(num,K,I=10,S=1, rho=1, cappa = 1, return_a = False, mu=0)
 
 
 # generate the plots, given an input file containing the results of the simulations
-def plot_results(file_name, K,tau_e, tau_k, delta, eps,reg_num,rand=True,vanilla = False, save= False,S=1, rho=1, cappa = 1, best_eps = False, output_name =[]):
+def plot_results(file_name, K,tau_e, tau_k, delta, eps,reg_num,rand=True,vanilla = False, save= False,S=1, rho=1, cappa = 1, output_name =[], skip = False):
     data = pd.read_csv(file_name)
     I = data['I'].unique()
-    Sigma = [0]*len(I)
-    B =  [0]*len(I)
-    B_coll =[0]*len(I)
-    rho_coll = np.zeros(len(I))
-    rho_sbsb= np.zeros(len(I))
-    rho = np.zeros(len(I))
-    bound = []
-    bound_vanilla = []
+    bound = np.zeros((len(delta), len(I)))
+    bound_vanilla = np.zeros((len(delta), len(I)))
+    mixing_time = []
+    
+    aux1 = np.zeros(len(delta))
+    aux2 = np.zeros(len(delta))
     for en,i in enumerate(I):
+
         print('#####################  '+ str(i)+ '  #################################################################\n' )
         if reg_num !=3:
             x= asymptotic_regimes(reg_num,K,I=i)
         else:
             x= asymptotic_regimes(3,K,I=i,S=S, rho=rho, cappa = cappa)
-        epsi = 1
-        rho[en], rho_coll[en], Sigma[en] , B[en], B_coll[en]= x.conv_rate(tau_e,tau_k)
-
-        print("compute bound")
-        aux_coll = np.copy(B_coll[en])
-        n=1
-        while (1- np.linalg.norm(np.linalg.matrix_power(B_coll[en],n))**(1/n)< (1-rho_coll[en])/(1+delta)):
-            aux_coll =aux_coll@aux_coll
-            n+= 1
-        n_d_coll = n
-        epsi = 1e-3
-        
+        # these automatically takes care of eliminating 0
+        #rho[en], rho_coll[e], Sigma[e], B[en], B_coll[en]= x.conv_rate(tau_e,tau_k)
+        rho, rho_coll, Sigma, B, B_coll= x.conv_rate(tau_e,tau_k)
+        rho_sbsb_coll = np.max(np.abs(la.eigvals(Sigma[1:,1:] - B_coll@Sigma[1:,1:]@B_coll.transpose())))
         if vanilla:
-            aux_plain = np.copy(B[en])
-            n=1
-            while (1-np.linalg.norm(np.linalg.matrix_power(B[en],n))**(1/n)< (1-rho[en])/(1+delta) and n<150):
-                aux_plain =aux_plain@aux_plain
-                n+= 1
+             rho_sbsb_pv = np.max(np.abs(la.eigvals(Sigma- B@Sigma@B.transpose())))
+        print(np.linalg.norm(B_coll))
 
-            n_d = n
-            bound_vanilla.append(np.max((n_d, (0.5 *(np.log(np.max(np.abs(la.eigvals(Sigma[en] - B[en]@Sigma[en]@B[en].transpose()))))+ np.log(12+8*np.sqrt(2/np.pi))) *erfinv(epsi)+ 1/(2*np.sqrt(2)*np.e))/(1-(rho[en]))*(1+delta)/(1-epsi))) + np.max((n_d, ( 0.5*np.mean(np.log( data[ (data['I']==I[en]) & (data['var']=='fixed') & (data['coll']=='plain')]['dist']   ))-0.5*np.log(np.max(np.abs(la.eigvals(Sigma[en] - B[en]@Sigma[en]@B[en].transpose())))) - np.log(erfinv(eps)*2*np.sqrt(2)))/(1-(rho[en]) )*(1+delta))))
+        mixing_time.append(1/(1-rho_coll))
+        a1=  (0.5*np.log(12+8*np.sqrt(2/np.pi))*erfinv(eps) +1/(2*np.sqrt(2)*np.e)) /(1-rho_coll)
+        a2=  (0.5*np.mean(np.log( data[ (data['I']==I[en]) & (data['var']=='fixed') & (data['coll']=='collapsed')]['dist']   ))-0.5*np.log(rho_sbsb_coll) - np.log(2*np.sqrt(2)*erfinv(eps)))/(1-rho_coll)
         
-        rho_sbsb[en] = np.max(np.abs(la.eigvals(Sigma[en][1:,1:] - B_coll[en]@Sigma[en][1:,1:]@B_coll[en].transpose())))
-        bound.append(  (1+ np.max((n_d_coll,   np.ceil(np.mean(np.log( data[ (data['I']==I[en]) & (data['var']=='fixed') & (data['coll']=='collapsed')]['dist']  ))-0.5*np.log(rho_sbsb[en]) - np.log(2*np.sqrt(2)*erfinv(epsi))/ (1-(rho_coll[en]))*(1+delta)))))/(1-epsi) + 1+ np.max((n_d_coll, ( 0.5*np.mean(np.log( data[ (data['I']==I[en]) & (data['var']=='fixed') & (data['coll']=='collapsed')]['dist']   ))-0.5*np.log(rho_sbsb[en]) - np.log(np.sqrt(epsi/(rho_sbsb[en]))))/(1- (rho_coll[en]) )*(1+delta)) ))
+        
+        if K!=2:
+            for di,d in enumerate(delta):
 
+                n_d_coll=1
+                aux = B_coll + 0
+                if skip==False:
+                    while ( (1- np.linalg.norm(aux)**(1/n_d_coll)) <= ((1-rho_coll)/(1+d))):
+                        aux =aux@B_coll
+                        n_d_coll+= 1
+                else:
+                    n_d_coll = 2
+
+                bound[di, en]= (1+ np.max((n_d_coll,np.ceil(a1*(1+d)))))/(1-eps) + 1+ np.max((n_d_coll, np.ceil( a2*(1+d))))
+                print( n_d_coll, np.ceil(a1*(1+d)), np.ceil( a2*(1+d)))
+                if vanilla:
+                    n_d=1
+                    aux = B + 0
+                    #while ( (1- np.linalg.norm(aux, '2')**(1/n_d)) <= ((1-rho)/(1+d))):
+                    while ( (1- np.linalg.norm(aux)**(1/n_d)) <= ((1-rho)/(1+d))):
+                        aux =aux@B
+                        n_d+= 1
+
+                    bound_vanilla[di, en]=(1+np.max((n_d, np.ceil((0.5 *np.log(12+8*np.sqrt(2/np.pi))*erfinv(eps)+ 1/(2*np.sqrt(2)*np.e))/(1-(rho))*(1+d)/(1-eps)))) +  1+  np.max((n_d, np.ceil((  (0.5*np.mean(np.log(data[ (data['I']==I[en]) & (data['var']=='fixed') & (data['coll']=='plain')]['dist']   ))-0.5*np.log(rho_sbsb_pv) - np.log(erfinv(eps)*2*np.sqrt(2))))/(1-rho)*(1+d)))) )
+
+        else:
+            d = 0
+            n_d_coll = 0
+            n_d = 0 
+            bound[0, en]= 2+  np.ceil(a1)/(1-eps) +  np.ceil(a2)
+            if vanilla:
+                bound_vanilla[0, en]= 1+ np.ceil((0.5 *np.log(12+8*np.sqrt(2/np.pi))*erfinv(eps)+ 1/(2*np.sqrt(2)*np.e))/(1-(rho))*(1+d)/(1-eps)) +  1+  np.ceil(  (0.5*np.mean(np.log(data[ (data['I']==I[en]) & (data['var']=='fixed') & (data['coll']=='plain')]['dist']   ))-0.5*np.log(rho_sbsb_pv) - np.log(erfinv(eps)*2*np.sqrt(2))))/(1-rho)
+
+        
     plt.figure(figsize=(10,5))
+    font = {'fontname':'Cambria Math'}
+    plt.rc('axes', labelsize=30)    # fontsize of the x and y labels
+    plt.rc('xtick', labelsize=30)    # fontsize of the tick labels
+    plt.rc('ytick', labelsize=30)    # fontsize of the tick labels
     
-    plt.rc('axes', labelsize=15)    # fontsize of the x and y labels
-    plt.rc('xtick', labelsize=15)    # fontsize of the tick labels
-    plt.rc('ytick', labelsize=15)    # fontsize of the tick labels
-    plt.xticks(range(len(I)), I)
-    plt.plot(range(len(I)), bound,label='bound, fixed var')
-    plt.scatter(range(len(I)), bound,s= 200, marker = '*')
-    print(bound)
+    plt.xticks(range(len(I)), np.array(I)*K+1)
+    if vanilla == False:
+        for di,d in enumerate(delta):
+            if K != 2:
+                plt.plot(range(len(I)), bound[di,:],'--',label='bound, fixed var, delta='+str(d))
+            else: 
+                plt.plot(range(len(I)), bound[di,:],'--',label='bound, fixed var')
+            plt.scatter(range(len(I)), bound[di,:],s= 200, marker = '*')
     for m in data[['coll','var']].drop_duplicates().iterrows():
-         if vanilla == False:
-             if m[1][0]!= "plain":
-                 plt.plot(range(len(I)),[ 1+ np.mean(data.iloc[data.groupby(['coll','var','I']).groups[(str(m[1]['coll']),str(m[1]['var']),i)].tolist(),:]['t']) for i in I], label= (str(m[1]['coll'])+',  '+ str(m[1]['var'])))
-                 plt.scatter(range(len(I)),[ 1+ np.mean(data.iloc[data.groupby(['coll','var','I']).groups[(str(m[1]['coll']),str(m[1]['var']),i)].tolist(),:]['t']) for i in I], s=50)
-         else:
-             plt.plot(range(len(I)),[ 1+ np.mean(data.iloc[data.groupby(['coll','var','I']).groups[(str(m[1]['coll']),str(m[1]['var']),i)].tolist(),:]['t']) for i in I], label= (str(m[1]['coll'])+',  '+ str(m[1]['var'])))
-             plt.scatter(range(len(I)),[ 1+ np.mean(data.iloc[data.groupby(['coll','var','I']).groups[(str(m[1]['coll']),str(m[1]['var']),i)].tolist(),:]['t']) for i in I], s=50)
-             
-    if vanilla:
-        plt.plot(range(len(I)), bound_vanilla,label='bound vanilla, fixed var')
-        plt.scatter(range(len(I)), bound_vanilla,s= 200, marker = '*')
+        if vanilla == False:
+            if m[1][0]!= "plain":
+                plt.plot(range(len(I)),   [ 1+ np.mean(data.iloc[data.groupby(['coll','var','I']).groups[(str(m[1]['coll']),str(m[1]['var']),i)].tolist(),:]['t']) for i in I], label= (str(m[1]['coll'])+',  '+ str(m[1]['var'])))
+                plt.scatter(range(len(I)),[ 1+ np.mean(data.iloc[data.groupby(['coll','var','I']).groups[(str(m[1]['coll']),str(m[1]['var']),i)].tolist(),:]['t']) for i in I], s=50)
+        else:
             
-    plt.ylabel("Meeting time", fontsize= 15)
-    plt.xlabel("I", fontsize= 15)
-    plt.legend(fontsize=15)
-    plt.title("Average meeting times",fontsize = 20)
-    plt.grid()
+            plt.plot(range(len(I)),[ 1+ np.mean(data.iloc[data.groupby(['coll','var','I']).groups[(str(m[1]['coll']),str(m[1]['var']),i)].tolist(),:]['t']) for i in I], label= (str(m[1]['coll'])+',  '+ str(m[1]['var'])))
+            plt.scatter(range(len(I)),[ 1+ np.mean(data.iloc[data.groupby(['coll','var','I']).groups[(str(m[1]['coll']),str(m[1]['var']),i)].tolist(),:]['t']) for i in I], s=50)
+    
+
+    if vanilla:
+        for di,d in enumerate(delta):
+            if K!= 2:
+                plt.plot(range(len(I)), bound_vanilla[di,:],'--',label='bound, fixed var')
+            else:
+                plt.plot(range(len(I)), bound_vanilla[di,:],'--',label='bound, fixed var')
+            plt.scatter(range(len(I)), bound_vanilla[di,:],s= 200, marker = '*')
+    
+    
+
+    plt.ylabel("Meeting time", fontsize=30  , **font)
+    plt.xlabel("Parameters number", fontsize= 30, **font)
+    plt.legend(fontsize=25)
+    
+    plt.rc('font',family='Cambria Math')
+    matplotlib.rc('font',family='Cambria Math')
+    plt.title("Average meeting times",fontsize = 30,**font)
+    plt.ylim(0)
+    plt.grid(True, which="both")
     if save:
-        plt.savefig(str(output_name)+'.png')
+        plt.savefig(str(output_name)+'.png', bbox_inches="tight")
     plt.show()
 
 
