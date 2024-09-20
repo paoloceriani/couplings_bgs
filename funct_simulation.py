@@ -723,8 +723,6 @@ def plot_results(file_name, K,tau_e, tau_k, delta, eps,reg_num,rand=True,vanilla
 
 
 def run_experiment(K,I, J,tau_e, tau_k, eps, reg_num, rand=True,export_results = False,T_max = 200, filename=[], collapsed = [], variance = [], S=1, rho=1, cappa = 1):
-    print("XXXXX")
-    print(collapsed, variance)
     if len(collapsed) != len(variance):
         print("variants error")
         return -1
@@ -734,7 +732,7 @@ def run_experiment(K,I, J,tau_e, tau_k, eps, reg_num, rand=True,export_results =
 
     for en,i in enumerate(I):
         print('#####################  '+ str(i)+ '  #################################################################\n' )
-        x = funct_simulation.asymptotic_regimes(reg_num, K , i, S, rho, cappa)
+        x = asymptotic_regimes(reg_num, K , i, S, rho, cappa)
         rho, rho_coll, Sigma , B, B_coll= x.conv_rate(tau_e,tau_k)
         rho_sbsb_pv = np.max(np.abs(la.eigvals(Sigma - B@Sigma@B.transpose())))
         rho_sbsb_coll = np.max(np.abs(la.eigvals(Sigma[1:,1:] - B_coll@Sigma[1:,1:]@B_coll.transpose())))
