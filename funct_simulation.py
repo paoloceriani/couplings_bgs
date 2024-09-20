@@ -723,7 +723,7 @@ def plot_results(file_name, K,tau_e, tau_k, delta, eps,reg_num,rand=True,vanilla
 
 
 def run_experiment(K,I, J,tau_e, tau_k, eps, reg_num, rand=True,export_results = False,T_max = 200, filename=[], collapsed = [], variance = [], S=1, rho=1, cappa = 1):
-
+    print(collapsed, variance)
     if len(collapsed) != len(variance):
         print("variants error")
         return -1
