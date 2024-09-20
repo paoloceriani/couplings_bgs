@@ -748,7 +748,7 @@ def run_experiment(K,I, J,tau_e, tau_k, eps, reg_num, rand=True,export_results =
                 epsi = epsi_coll
                 print(epsi_coll)
             for j in range(J):
-                a,b,distances[e,en,j], times[e,en,j]= funct_simulation.MCMC_sampler_coupled(x, collapsed=m, PX=True, L=1, T=T_max, dist=epsi, rand= rand, var_fixed=n )
+                a,b,distances[e,en,j], times[e,en,j]= MCMC_sampler_coupled(x, collapsed=m, PX=True, L=1, T=T_max, dist=epsi, rand= rand, var_fixed=n )
                 print(times[e,en,j])
             pd.DataFrame(times.flatten()).to_csv("aux_"+str(K))    
                 
