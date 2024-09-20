@@ -6,12 +6,16 @@ The python source file can be found in  [`functions.py`](https://github.com/paol
 
 ### `Gaussian`
 Consider Model 1 of the paper
-$$
-		y_n | \mu, \mathbf{a}, \tau_0 &\sim N\left(\mu +\sum_{k=1}^K a_{i_{k}[n]}^{(k)},\tau_0^{-1}\right),  \qquad  n=1,...,N\\
-		a^{(k)}_i | \tau_k &\sim N(0, \tau_k^{-1}), \qquad   i=1,..., I_k, \, k=1,..., K  \\
-		p(\tau_k) &\propto \tau_k^{-0.5}, \qquad \text{ for } k=0,..., K  \\
-		p(\mu) \propto 1, 
-$$
+
+
+$$ y_n | \mu, \mathbf{a}, \tau_0 \sim N\left(\mu +\sum_{k=1}^K a_{i_{k}[n]}^{(k)},\tau_0^{-1}\right),  \quad  n=1,...,N$$
+
+$$a^{(k)}_i | \tau_k \sim N(0, \tau_k^{-1}), \quad   i=1,..., I_k, \, k=1,..., K  $$
+
+$$p(\tau_k) \propto \tau_k^{-0.5}, \quad \text{ for } k=0,..., K  $$
+
+$$p(\mu) \propto 1.$$
+
 The function below allows to generate data from asymptotic regimes 1,2 and 3 and directly run the coupled chains. 
 Allows the specification of different number of levels per factor, and different type of algorithms.
 The function is called
