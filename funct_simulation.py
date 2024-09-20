@@ -721,25 +721,39 @@ def plot_results(file_name, K,tau_e, tau_k, delta, eps,reg_num,rand=True,vanilla
         plt.savefig(str(output_name)+'.png')
     plt.show()
 
-def run_experiment(K,I, J,tau_e, tau_k ,delta, eps, reg_num, rand=True,export_results = False,T_max = 200, filename=[], collapsed = [], variance = [], S=1, rho=1, cappa = 1, best_eps = False):    
+
+def run_experiment(K,I, J,tau_e, tau_k, eps, reg_num, rand=True,export_results = False,T_max = 200, filename=[], collapsed = [], variance = [], S=1, rho=1, cappa = 1):
+
     if len(collapsed) != len(variance):
         print("variants error")
         return -1
+    
     distances = np.zeros((len(collapsed ), len(I), J))
     times = np.zeros((len(collapsed ), len(I), J))
+
     for en,i in enumerate(I):
         print('#####################  '+ str(i)+ '  #################################################################\n' )
-        x = asymptotic_regimes(reg_num, K , i, S, rho, cappa)
+        x = funct_simulation.asymptotic_regimes(reg_num, K , i, S, rho, cappa)
+        rho, rho_coll, Sigma , B, B_coll= x.conv_rate(tau_e,tau_k)
+        rho_sbsb_pv = np.max(np.abs(la.eigvals(Sigma - B@Sigma@B.transpose())))
+        rho_sbsb_coll = np.max(np.abs(la.eigvals(Sigma[1:,1:] - B_coll@Sigma[1:,1:]@B_coll.transpose())))
+        epsi_coll = (erfinv(eps))**2*8/(np.linalg.norm(B_coll))**2*rho_sbsb_coll
+        epsi_pv = (erfinv(eps))**2*8/(np.linalg.norm(B))**2*rho_sbsb_pv
+        print(np.linalg.norm(B_coll),epsi_coll )
+        print("go!")
         for e,(m,n) in enumerate(zip(collapsed,variance)):
             print("collapsed, fixed variance=", m,n)
-            if best_eps ==True:
-                epsi = 1e3/(i*K)
+            if m == False:
+                epsi = epsi_pv
             else:
-                epsi = eps
+                epsi = epsi_coll
+                print(epsi_coll)
             for j in range(J):
-                a,b,distances[e,en,j], times[e,en,j]= MCMC_sampler_coupled(x, collapsed=m, PX=True, L=1, T=T_max, dist=epsi, rand= rand, var_fixed=n)
-        pd.DataFrame(times.flatten()).to_csv("aux_"+str(K))    
-   
+                a,b,distances[e,en,j], times[e,en,j]= funct_simulation.MCMC_sampler_coupled(x, collapsed=m, PX=True, L=1, T=T_max, dist=epsi, rand= rand, var_fixed=n )
+                print(times[e,en,j])
+            pd.DataFrame(times.flatten()).to_csv("aux_"+str(K))    
+                
+
     df = pd.DataFrame()
     df['t'] = times.flatten()
     df['dist'] = distances.flatten()
@@ -753,10 +767,11 @@ def run_experiment(K,I, J,tau_e, tau_k ,delta, eps, reg_num, rand=True,export_re
     df['var'] = df['var'].str.replace('True','fixed')
     df['var'] = df['var'].str.replace('False','free_v')
     
+
     if export_results:
         df.to_csv(filename)
         return -1
     else:
         return df
-
+        
 
