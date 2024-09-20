@@ -11,8 +11,8 @@ The python source file can be found in  [`functions.py`](https://github.com/paol
 
 **example code**
 ``` 
-python -m pip install -U git+https://github.com/paoloceriani/couplings_bgs/funct_simulation
-python -m pip install -U git+https://github.com/paoloceriani/couplings_bgs/funct_simulation_MH
+!python3 -m pip install -U git+https://github.com/paoloceriani/couplings_bgs/blob/main/funct_simulation.py
+!python3 -m pip install -U git+https://github.com/paoloceriani/couplings_bgs/funct_simulation_MH
 
 import funct_simulation_MH_11 as fmh
 import numpy as np
